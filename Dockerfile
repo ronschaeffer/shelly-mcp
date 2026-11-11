@@ -10,9 +10,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
+# Install the locked dependency set, then the package itself.
 RUN pip install --no-cache-dir uv \
- && uv pip install --system --no-cache . \
- && pip uninstall -y uv
+ && uv export --frozen --no-dev --no-hashes --no-emit-project -o /tmp/requirements.txt \
+ && uv pip install --system --no-cache -r /tmp/requirements.txt \
+ && uv pip install --system --no-cache --no-deps . \
+ && pip uninstall -y uv && rm /tmp/requirements.txt
 
 USER 99:100
 EXPOSE 8765
