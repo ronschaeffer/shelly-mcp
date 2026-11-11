@@ -15,7 +15,7 @@ import aiohttp
 
 from shelly_mcp.auth import basic_auth
 from shelly_mcp.backends.base import AuthRequired, DeviceUnreachable
-from shelly_mcp.methods import gen1_rest_for
+from shelly_mcp.methods import Gen1Query, gen1_request_for
 from shelly_mcp.models import Capabilities, DeviceIdentity, Generation
 
 
@@ -48,7 +48,7 @@ class Gen1RestBackend:
         self._timeout = aiohttp.ClientTimeout(total=timeout_s)
         self._caps = Capabilities()
 
-    async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _get(self, path: str, params: Gen1Query | None = None) -> dict[str, Any]:
         url = f"http://{self._ip}{path}"
         try:
             async with self._session.get(
@@ -98,7 +98,7 @@ class Gen1RestBackend:
         return _gen1_component_keys(await self._get("/status"))
 
     async def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        path, query = gen1_rest_for(method, params)  # raises UnsupportedOnGeneration if no map
+        path, query = gen1_request_for(method, params)  # raises UnsupportedOnGeneration if no map
         return await self._get(path, query)
 
     @property

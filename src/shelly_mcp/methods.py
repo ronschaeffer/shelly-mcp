@@ -16,6 +16,7 @@ canonical (Gen2-style) method names a tool emits into Gen1 ``/relay``/``/light``
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Any
 from urllib.parse import urlencode
@@ -90,6 +91,59 @@ def requires_data_loss_ack(method: str) -> bool:
 
 
 # --------------------------------------------------------------------------- Gen1
+# A Gen1 query is a plain mapping for control calls; settings writes use a list of
+# (key, value) pairs so repeated keys (e.g. ``urls[]`` in /settings/actions) survive.
+Gen1Query = dict[str, Any] | list[tuple[str, str]]
+
+GEN1_SET_SETTINGS = "Gen1.SetSettings"
+# Sub-paths under /settings that change the device's Wi-Fi: a wrong value strands the
+# device off the network, so they need an explicit ``allow_wifi_change`` acknowledgement.
+GEN1_WIFI_SETTINGS_PATHS = frozenset({"sta", "sta1", "ap"})
+# Login/auth changes can lock the server out of the device; not exposed here.
+GEN1_FORBIDDEN_SETTINGS_PATHS = frozenset({"login"})
+_GEN1_SETTINGS_PATH = re.compile(r"^(?:[a-z][a-z0-9_]{0,31}(?:/[0-9]{1,2})?)?$")
+
+
+def _gen1_query_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float, str)):
+        return str(value)
+    raise ValueError(f"unsupported Gen1 settings value type: {type(value).__name__}")
+
+
+def gen1_settings_request(
+    path: str, values: dict[str, Any] | None, *, allow_wifi_change: bool = False
+) -> tuple[str, list[tuple[str, str]]]:
+    """Validate and build a Gen1 ``GET /settings[/<path>]?k=v`` write.
+
+    ``path`` is the sub-path under ``/settings`` (``""`` for the top level, e.g.
+    ``relay/0``, ``light/0``, ``mqtt``, ``actions``). List values become repeated keys.
+    """
+    path = (path or "").strip().strip("/")
+    if not _GEN1_SETTINGS_PATH.fullmatch(path):
+        raise ValueError(f"invalid Gen1 settings path {path!r} (expected e.g. 'relay/0', 'mqtt')")
+    root = path.split("/", 1)[0]
+    if root in GEN1_FORBIDDEN_SETTINGS_PATHS:
+        raise ValueError(f"/settings/{path} is not writable through this tool (auth changes)")
+    if root in GEN1_WIFI_SETTINGS_PATHS and not allow_wifi_change:
+        raise ValueError(
+            f"/settings/{path} changes Wi-Fi and can strand the device; "
+            "set i_understand_disconnect=true to proceed"
+        )
+    if not values:
+        raise ValueError("values must be a non-empty mapping of settings to change")
+    query: list[tuple[str, str]] = []
+    for key, value in values.items():
+        if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9_\[\]]{1,48}", key):
+            raise ValueError(f"invalid Gen1 settings key {key!r}")
+        if isinstance(value, (list, tuple)):
+            query.extend((key, _gen1_query_value(v)) for v in value)
+        else:
+            query.append((key, _gen1_query_value(value)))
+    return ("/settings/" + path if path else "/settings"), query
+
+
 # Canonical (Gen2-style) method -> Gen1 REST. Each entry yields (path, query-dict).
 # Gen1 control is all HTTP GET with query params; reads hit /status or /settings.
 
@@ -103,8 +157,15 @@ def gen1_rest_for(method: str, params: dict[str, Any] | None = None) -> tuple[st
     p = dict(params or {})
     ch = int(p.get("id", 0))
 
-    if method in ("Shelly.GetStatus", "Switch.GetStatus", "Light.GetStatus",
-                  "RGB.GetStatus", "RGBW.GetStatus", "CCT.GetStatus", "Cover.GetStatus"):
+    if method in (
+        "Shelly.GetStatus",
+        "Switch.GetStatus",
+        "Light.GetStatus",
+        "RGB.GetStatus",
+        "RGBW.GetStatus",
+        "CCT.GetStatus",
+        "Cover.GetStatus",
+    ):
         return "/status", {}
     if method in ("Shelly.GetConfig", "Sys.GetConfig"):
         return "/settings", {}
@@ -146,6 +207,18 @@ def gen1_rest_for(method: str, params: dict[str, Any] | None = None) -> tuple[st
         f"'{method}' has no Gen1 REST equivalent — this needs a Gen2+ device "
         f"(Gen1 hardware can't express it over its HTTP API)."
     )
+
+
+def gen1_request_for(method: str, params: dict[str, Any] | None = None) -> tuple[str, Gen1Query]:
+    """Like :func:`gen1_rest_for`, plus the Gen1 settings write (``Gen1.SetSettings``)."""
+    if method == GEN1_SET_SETTINGS:
+        p = params or {}
+        return gen1_settings_request(
+            str(p.get("path", "")),
+            p.get("values"),
+            allow_wifi_change=bool(p.get("allow_wifi_change", False)),
+        )
+    return gen1_rest_for(method, params)
 
 
 def gen1_url(path: str, query: dict[str, Any]) -> str:

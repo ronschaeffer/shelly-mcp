@@ -10,6 +10,7 @@ from __future__ import annotations
 from shelly_mcp.tools import (
     control,
     energy,
+    gen1,
     generic,
     kvs,
     read,
@@ -26,6 +27,7 @@ __all__ = [
     "read",
     "control",
     "energy",
+    "gen1",
     "generic",
     "resources",
     "scenes",

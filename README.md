@@ -24,6 +24,11 @@ Register in your MCP client:
 { "mcpServers": { "shelly": { "command": "uvx", "args": ["shelly-mcp"] } } }
 ```
 
+## Fork additions (ronschaeffer)
+
+- **`shelly_gen1_settings_set`** — change Gen1 settings (`GET /settings[/<path>]?k=v`): device name, LED, relay defaults, MQTT, CoIoT, actions… Same safety model as the other mutating tools: `confirm:true`, audit-logged with credentials masked, Wi-Fi paths (`sta`, `sta1`, `ap`) need `i_understand_disconnect:true`, and `login` is not writable. Gen2+ devices keep using `shelly_rpc_write` + `*.SetConfig`.
+- **`shelly-mcp-http`** — streamable-HTTP entry point at `/mcp` with a static bearer token (`SHELLY_MCP_TOKEN`), plus an open `/healthz`. A `Dockerfile` runs it as UID 99:100 with config in `/config/shelly-mcp/` and the audit log in `/state/`.
+
 ## Configure
 
 Auto-discovery (mDNS) finds devices on your local subnet — `shelly_discover` and you're running. For named devices ("turn off the kitchen"), devices on other subnets, passwords, or the cloud fallback, create `~/.config/shelly-mcp/config.yaml` (`chmod 600`):
