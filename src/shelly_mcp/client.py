@@ -12,6 +12,8 @@ and one shared aiohttp session for all local HTTP.
 
 from __future__ import annotations
 
+import asyncio
+
 import aiohttp
 
 from shelly_mcp.backends.base import Backend, BackendError, DeviceUnreachable
@@ -80,6 +82,26 @@ class DeviceRegistry:
             self._caps[dev_id] = caps
             devices.append(ident)
         return devices
+
+    @property
+    def cloud_enabled(self) -> bool:
+        cc = self._config.cloud
+        return self._cloud is not None or bool(cc.enabled and cc.server and cc.auth_key)
+
+    async def list_local_devices(self) -> tuple[list[DeviceIdentity], dict[str, str]]:
+        """Probe every configured LAN device; return (identities, {name: error})."""
+        names = [n for n, cfg in self._config.devices.items() if cfg.ip]
+        results = await asyncio.gather(*(self.identify(n) for n in names), return_exceptions=True)
+        found: list[DeviceIdentity] = []
+        errors: dict[str, str] = {}
+        for name, res in zip(names, results, strict=True):
+            if isinstance(res, DeviceIdentity):
+                found.append(res)
+            elif isinstance(res, BackendError):
+                errors[name] = str(res)
+            elif isinstance(res, BaseException):
+                raise res
+        return found, errors
 
     def _overlay_meta(self, ident: DeviceIdentity) -> DeviceIdentity:
         """Apply the configured friendly name + location to a probed identity.

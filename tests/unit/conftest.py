@@ -95,6 +95,11 @@ class FakeRegistry:
     async def list_devices(self) -> list[DeviceIdentity]:
         return [self._ident]
 
+    cloud_enabled = True
+
+    async def list_local_devices(self) -> tuple[list[DeviceIdentity], dict[str, str]]:
+        return [], {}
+
     def capabilities(self, device: str) -> Capabilities:
         return self._backend.capabilities
 

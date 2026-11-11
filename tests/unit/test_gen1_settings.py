@@ -95,3 +95,33 @@ async def test_tool_wifi_needs_ack(gen1: Any) -> None:
         device="dev", path="sta", values={"ssid": "x"}, confirm=True
     )
     assert "error" in out and gen1.calls == []
+
+
+async def test_list_devices_local_only_without_cloud() -> None:
+    """With no cloud configured, configured LAN devices are probed (not an error)."""
+    from shelly_mcp.app import set_registry
+    from shelly_mcp.client import DeviceRegistry
+    from shelly_mcp.config import Config
+    from shelly_mcp.models import DeviceIdentity
+    from shelly_mcp.tools.read import shelly_list_devices
+
+    cfg = Config.model_validate(
+        {"devices": {"lamp": {"ip": "10.0.0.2", "location": "study"}, "gone": {"ip": "10.0.0.3"}}}
+    )
+    reg = DeviceRegistry(cfg)
+
+    async def fake_identify(device: str) -> DeviceIdentity:
+        if device == "gone":
+            from shelly_mcp.backends.base import DeviceUnreachable
+
+            raise DeviceUnreachable("timeout")
+        return DeviceIdentity(id="abc", name=device, location="study", gen=Generation.GEN1)
+
+    reg.identify = fake_identify  # type: ignore[method-assign]
+    set_registry(reg)
+    try:
+        out = await shelly_list_devices()
+    finally:
+        set_registry(None)
+    assert out["count"] == 1 and out["devices"][0]["name"] == "lamp"
+    assert out["unreachable"] == {"gone": "timeout"}

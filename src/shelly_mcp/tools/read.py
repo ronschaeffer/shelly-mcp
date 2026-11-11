@@ -8,6 +8,7 @@ from shelly_mcp import __version__, discovery
 from shelly_mcp.app import backend_errors, get_registry, mcp, resolve_status
 from shelly_mcp.audit import redact_config
 from shelly_mcp.backends.base import BackendError
+from shelly_mcp.models import DeviceIdentity
 
 
 @mcp.tool
@@ -42,8 +43,18 @@ async def shelly_list_devices() -> dict[str, Any]:
     Safe, read-only. Returns each device's canonical identity (id, name, generation,
     model, online state) — the starting point before any status or control call.
     """
-    devices = await get_registry().list_devices()
-    return {"count": len(devices), "devices": [d.model_dump() for d in devices]}
+    registry = get_registry()
+    devices: list[DeviceIdentity] = []
+    unreachable: dict[str, str] = {}
+    if registry.cloud_enabled:
+        devices = await registry.list_devices()
+    seen = {d.id for d in devices}
+    local, unreachable = await registry.list_local_devices()
+    devices += [d for d in local if d.id not in seen]
+    out: dict[str, Any] = {"count": len(devices), "devices": [d.model_dump() for d in devices]}
+    if unreachable:
+        out["unreachable"] = unreachable
+    return out
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
